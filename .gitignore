@@ -1,0 +1,9 @@
+api/target/
+__pycache__/
+*.pyc
+.pytest_cache/
+bench/results.jsonl
+.idea/
+.vscode/
+*.iml
+.env

@@ -1,0 +1,51 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: inferq-api
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+      timeout: 2s
+  jackson:
+    default-property-inclusion: non_null
+    mapper:
+      accept-case-insensitive-enums: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+inferq:
+  # Models workers can serve. The first one is the default. Also used as a whitelist,
+  # because the model name becomes part of a Redis key.
+  models: ${INFERQ_MODELS:mock-small}
+  # Backpressure: reject new jobs (HTTP 503) once a model's ready queue is this deep.
+  max-queue-depth: ${INFERQ_MAX_QUEUE_DEPTH:10000}
+  default-max-attempts: 3
+  base-backoff-ms: 500
+  max-backoff-ms: 30000
+  idempotency-ttl-seconds: 86400
+  result-ttl-seconds: 86400
+  maintenance-interval-ms: 250
+  maintenance-batch: 500
+  # Rank offset per priority. A LOW job outranks a HIGH job submitted 120s later.
+  priority-penalty-ms:
+    HIGH: 0
+    NORMAL: 30000
+    LOW: 120000
+  rate-limit:
+    enabled: ${INFERQ_RATE_LIMIT_ENABLED:true}
+    capacity: ${INFERQ_RATE_LIMIT_BURST:200}
+    refill-per-second: ${INFERQ_RATE_LIMIT_RPS:100}

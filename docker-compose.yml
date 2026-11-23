@@ -1,0 +1,64 @@
+services:
+  redis:
+    image: redis:7.2-alpine
+    # AOF with fsync every second: a Redis crash loses at most ~1s of queue writes.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports: ["6379:6379"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 15
+
+  api:
+    build: { context: ., dockerfile: api/Dockerfile }
+    environment:
+      REDIS_URL: redis://redis:6379
+      INFERQ_MODELS: ${MODEL:-mock-small}
+      INFERQ_MAX_QUEUE_DEPTH: ${MAX_QUEUE_DEPTH:-10000}
+      INFERQ_RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-100}
+      INFERQ_RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-200}
+    ports: ["8080:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  worker:
+    build: { context: ., dockerfile: worker/Dockerfile }
+    environment:
+      REDIS_URL: redis://redis:6379
+      MODEL: ${MODEL:-mock-small}
+      BACKEND: ${BACKEND:-mock}
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:11434}
+      BACKEND_MODEL: ${BACKEND_MODEL:-}
+      MAX_BATCH: ${MAX_BATCH:-8}
+      MAX_WAIT_MS: ${MAX_WAIT_MS:-20}
+      LEASE_MS: ${LEASE_MS:-10000}
+      HEARTBEAT_MS: ${HEARTBEAT_MS:-3000}
+      FAIL_RATE: ${FAIL_RATE:-0}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    deploy:
+      replicas: ${WORKERS:-3}
+    # SIGTERM -> the worker finishes its current batch before exiting.
+    stop_grace_period: 60s
+    depends_on:
+      redis: { condition: service_healthy }
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes: ["./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/inferq.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  redis-data:
